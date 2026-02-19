@@ -1,1 +1,9 @@
 node_modules
+.next
+out
+.env
+.env.local
+.env.production.local
+.env.development.local
+*.tsbuildinfo
+tsconfig.tsbuildinfo

@@ -1,10 +1,10 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import ThemeToggle from './ThemeToggle'
 import { WiDayCloudy } from 'react-icons/wi'
-import { FiMenu, FiX } from 'react-icons/fi'
+import { FiMenu, FiX, FiDownload } from 'react-icons/fi'
 
 const links = [
   { href: '/weather', label: 'Weather' },
@@ -15,6 +15,26 @@ const links = [
 export default function Navbar() {
   const pathname = usePathname()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [installPrompt, setInstallPrompt] = useState<any>(null)
+
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault()
+      setInstallPrompt(e)
+    }
+    window.addEventListener('beforeinstallprompt', handler)
+    return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [])
+
+  const handleInstall = () => {
+    if (installPrompt) {
+      installPrompt.prompt()
+      setInstallPrompt(null)
+    } else {
+      // Fallback: guide user to use browser's install option
+      alert('To install ClimateHub, use your browser menu and select "Add to Home Screen" or "Install App".')
+    }
+  }
 
   return (
     <nav className="glass-nav sticky top-0 z-50 px-6 py-3">
@@ -42,9 +62,22 @@ export default function Navbar() {
           ))}
         </div>
 
-        {/* Right side: Theme toggle + Mobile hamburger */}
+        {/* Right side */}
         <div className="flex items-center gap-2">
+          {/* Install Button */}
+          <button
+            onClick={handleInstall}
+            className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-medium
+                       bg-blue-500 text-white hover:bg-blue-600 transition-all duration-200
+                       hover:shadow-lg hover:shadow-blue-500/25 active:scale-95"
+          >
+            <FiDownload className="text-sm" />
+            <span className="hidden sm:inline">Install</span>
+          </button>
+
           <ThemeToggle />
+
+          {/* Mobile hamburger */}
           <button
             onClick={() => setMenuOpen(!menuOpen)}
             className="md:hidden p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
@@ -73,6 +106,16 @@ export default function Navbar() {
                 {link.label}
               </Link>
             ))}
+
+            {/* Mobile Install Button */}
+            <button
+              onClick={() => { handleInstall(); setMenuOpen(false) }}
+              className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium
+                         text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-all"
+            >
+              <FiDownload />
+              Install App
+            </button>
           </div>
         </div>
       )}
