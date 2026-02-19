@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900 dark:bg-[#0b1120] dark:text-slate-100 transition-colors duration-300;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-white/80 dark:bg-slate-800/60 backdrop-blur-xl
+           border border-white/40 dark:border-slate-700/50
+           shadow-lg shadow-slate-200/50 dark:shadow-black/20;
+  }
+
+  .glass-nav {
+    @apply bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl
+           border-b border-slate-200/60 dark:border-slate-700/40;
+  }
+
+  .input-search {
+    @apply w-full pl-11 pr-12 py-3.5 rounded-2xl
+           bg-white dark:bg-slate-800/80
+           border border-slate-200 dark:border-slate-700
+           focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500
+           outline-none transition-all duration-200
+           placeholder:text-slate-400;
+  }
+
+  .tab-active {
+    @apply bg-blue-500 text-white shadow-md shadow-blue-500/25;
+  }
+
+  .tab-inactive {
+    @apply bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400
+           hover:bg-slate-100 dark:hover:bg-slate-700;
+  }
+
+  .detail-card {
+    @apply glass-card p-5 rounded-2xl flex items-center gap-4
+           hover:scale-[1.02] transition-transform duration-200;
+  }
+
+  .forecast-card {
+    @apply text-center p-4 rounded-2xl
+           bg-slate-50/80 dark:bg-slate-700/40
+           hover:bg-blue-50 dark:hover:bg-slate-700/70
+           transition-all duration-200;
+  }
+
+  .news-card {
+    @apply glass-card rounded-2xl overflow-hidden
+           hover:scale-[1.02] hover:shadow-xl
+           transition-all duration-300;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-300 dark:bg-slate-600 rounded-full;
+}
+
+.dark body {
+  background: linear-gradient(135deg, #0b1120 0%, #0f172a 50%, #111827 100%);
+}

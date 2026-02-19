@@ -1,0 +1,6 @@
+{
+  "/api/news/route": "app/api/news/route.js",
+  "/news/page": "app/news/page.js",
+  "/weather/page": "app/weather/page.js",
+  "/settings/page": "app/settings/page.js"
+}
