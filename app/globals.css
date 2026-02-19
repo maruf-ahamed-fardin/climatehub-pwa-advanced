@@ -56,6 +56,19 @@
            hover:scale-[1.02] hover:shadow-xl
            transition-all duration-300;
   }
+
+  .news-image-placeholder {
+    background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 50%, #0ea5e9 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .news-image-placeholder::after {
+    content: '📰';
+    font-size: 3rem;
+    opacity: 0.5;
+  }
 }
 
 ::-webkit-scrollbar {
@@ -73,4 +86,13 @@
 
 .dark body {
   background: linear-gradient(135deg, #0b1120 0%, #0f172a 50%, #111827 100%);
+}
+
+/* Hide scrollbar for topic chips */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
 }
