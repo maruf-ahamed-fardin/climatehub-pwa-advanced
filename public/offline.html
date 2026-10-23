@@ -1,6 +1,37 @@
 <!DOCTYPE html>
-<html>
-<body style="background:#111;color:white;text-align:center;padding-top:50px;">
-<h1>You are offline</h1>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f172a">
+  <title>Offline · ClimateHub</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      padding: 24px; font-family: system-ui, -apple-system, sans-serif;
+      background: linear-gradient(135deg, #0b1120 0%, #0f172a 50%, #111827 100%); color: #f1f5f9;
+    }
+    .card {
+      max-width: 360px; width: 100%; text-align: center; padding: 40px 28px; border-radius: 24px;
+      background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(51, 65, 85, 0.5);
+    }
+    .icon { font-size: 56px; line-height: 1; margin-bottom: 16px; }
+    h1 { font-size: 22px; margin: 0 0 8px; }
+    p { font-size: 14px; color: #94a3b8; margin: 0 0 24px; line-height: 1.5; }
+    button {
+      font: inherit; font-size: 14px; font-weight: 600; color: #fff; background: #3b82f6;
+      border: 0; border-radius: 12px; padding: 12px 24px; cursor: pointer; min-height: 44px;
+    }
+    button:hover { background: #2563eb; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">☁️</div>
+    <h1>You're offline</h1>
+    <p>ClimateHub can't reach the internet right now. Pages you've opened before still work. Check your connection and try again.</p>
+    <button onclick="location.reload()">Try again</button>
+  </div>
 </body>
 </html>

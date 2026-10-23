@@ -15,10 +15,6 @@ function timeAgo(dateStr: string) {
   return `${Math.floor(diff / 1440)}d ago`
 }
 
-function getFallbackImage(index: number) {
-  return `https://picsum.photos/seed/climate${index}/800/450`
-}
-
 const quickTopics = ['Climate', 'Weather', 'Environment', 'Energy', 'Ocean', 'Wildlife']
 
 export default function NewsPage() {
@@ -46,16 +42,11 @@ export default function NewsPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  const handleImageError = (e: React.SyntheticEvent<HTMLImageElement>, i: number) => {
+  // No image or a broken one: show the gradient placeholder instead of an unrelated stock photo
+  const handleImageError = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const target = e.target as HTMLImageElement
-    if (!target.dataset.fallback) {
-      target.dataset.fallback = '1'
-      target.src = getFallbackImage(i)
-    } else if (target.dataset.fallback === '1') {
-      target.dataset.fallback = '2'
-      target.style.display = 'none'
-      target.parentElement!.classList.add('news-image-placeholder')
-    }
+    target.style.display = 'none'
+    target.parentElement!.classList.add('news-image-placeholder')
   }
 
   return (
@@ -78,10 +69,11 @@ export default function NewsPage() {
           <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             placeholder="Search topics..."
+            aria-label="Search news topics"
             value={searchInput}
             onChange={e => setSearchInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleSearch()}
-            className="input-search"
+            className="input-search pr-24"
           />
           <button
             onClick={handleSearch}
@@ -97,7 +89,7 @@ export default function NewsPage() {
             <button
               key={topic}
               onClick={() => { setQuery(topic.toLowerCase()); setPage(1) }}
-              className={`px-4 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all duration-200 ${
+              className={`px-4 py-2 rounded-full text-xs font-medium whitespace-nowrap transition-all duration-200 ${
                 query === topic.toLowerCase()
                   ? 'bg-blue-500 text-white shadow-md shadow-blue-500/25'
                   : 'bg-white/80 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 hover:bg-blue-50 dark:hover:bg-slate-700 border border-slate-200/60 dark:border-slate-700/50'
@@ -144,12 +136,16 @@ export default function NewsPage() {
           rel="noopener noreferrer"
           className="group block relative h-72 md:h-80 rounded-2xl overflow-hidden animate-slide-up"
         >
-          <img
-            src={featured.image || getFallbackImage(0)}
-            alt={featured.title}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
-            onError={(e) => handleImageError(e, 0)}
-          />
+          {featured.image ? (
+            <img
+              src={featured.image}
+              alt=""
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+              onError={handleImageError}
+            />
+          ) : (
+            <div className="w-full h-full news-image-placeholder" />
+          )}
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
           <div className="absolute bottom-0 left-0 right-0 p-6 md:p-8">
             <div className="flex items-center gap-3 mb-3">
@@ -177,22 +173,27 @@ export default function NewsPage() {
       {/* Articles Grid */}
       {gridArticles.length > 0 && (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {gridArticles.map((article: any, i: number) => {
-            const realIndex = page === 1 ? i + 1 : i
-            return (
-              <article
-                key={realIndex}
-                className="group glass-card rounded-2xl overflow-hidden hover:shadow-xl hover:shadow-blue-500/5 transition-all duration-300 animate-slide-up"
+          {gridArticles.map((article: any, i: number) => (
+              // Whole card is the link - on mobile people tap the card, not a small "Read More"
+              <a
+                key={article.url || i}
+                href={article.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group block glass-card rounded-2xl overflow-hidden hover:shadow-xl hover:shadow-blue-500/5 transition-all duration-300 animate-slide-up"
                 style={{ animationDelay: `${i * 0.06}s` }}
               >
                 {/* Image */}
-                <div className="relative h-44 overflow-hidden">
-                  <img
-                    src={article.image || getFallbackImage(realIndex)}
-                    alt={article.title}
-                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-                    onError={(e) => handleImageError(e, realIndex)}
-                  />
+                <div className={`relative h-44 overflow-hidden ${article.image ? '' : 'news-image-placeholder'}`}>
+                  {article.image && (
+                    <img
+                      src={article.image}
+                      alt=""
+                      loading="lazy"
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+                      onError={handleImageError}
+                    />
+                  )}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
 
                   {/* Time Badge */}
@@ -219,19 +220,13 @@ export default function NewsPage() {
                     </p>
                   )}
 
-                  <a
-                    href={article.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-500 hover:text-blue-400 transition-colors pt-1 group/link"
-                  >
+                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-500 group-hover:text-blue-400 transition-colors pt-1">
                     Read More
-                    <FiArrowUpRight className="text-xs group-hover/link:translate-x-0.5 group-hover/link:-translate-y-0.5 transition-transform" />
-                  </a>
+                    <FiArrowUpRight className="text-xs group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                  </span>
                 </div>
-              </article>
-            )
-          })}
+              </a>
+          ))}
         </div>
       )}
 
@@ -243,7 +238,8 @@ export default function NewsPage() {
             <button
               onClick={() => goToPage(page - 1)}
               disabled={page <= 1}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all duration-200
+              aria-label="Previous page"
+              className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all duration-200
                          disabled:opacity-20 disabled:cursor-not-allowed
                          hover:bg-slate-100 dark:hover:bg-slate-700 active:scale-95"
             >
@@ -270,7 +266,8 @@ export default function NewsPage() {
             <button
               onClick={() => goToPage(page + 1)}
               disabled={page >= totalPages}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all duration-200
+              aria-label="Next page"
+              className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all duration-200
                          disabled:opacity-20 disabled:cursor-not-allowed
                          hover:bg-slate-100 dark:hover:bg-slate-700 active:scale-95"
             >

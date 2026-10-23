@@ -2,16 +2,50 @@
 import { useTheme } from 'next-themes'
 import { useEffect, useState } from 'react'
 import { BsSunFill, BsMoonStarsFill } from 'react-icons/bs'
-import { FiMonitor, FiGlobe, FiInfo, FiBell } from 'react-icons/fi'
+import { FiMonitor, FiGlobe, FiInfo } from 'react-icons/fi'
 import { WiDayCloudy } from 'react-icons/wi'
+import { useSettings } from '@/lib/settings'
+
+const themeOptions = [
+  { value: 'light', label: 'Light', icon: <BsSunFill className="text-2xl text-amber-500 mx-auto mb-2" /> },
+  { value: 'dark', label: 'Dark', icon: <BsMoonStarsFill className="text-2xl text-blue-500 mx-auto mb-2" /> },
+  { value: 'system', label: 'System', icon: <FiMonitor className="text-2xl text-slate-500 mx-auto mb-2" /> },
+]
+
+function Segmented<T extends string>({ value, options, onChange, label }: {
+  value: T
+  options: { value: T; label: string }[]
+  onChange: (v: T) => void
+  label: string
+}) {
+  return (
+    <div role="radiogroup" aria-label={label} className="flex gap-1 bg-slate-100 dark:bg-slate-800 rounded-full p-1">
+      {options.map(o => (
+        <button
+          key={o.value}
+          role="radio"
+          aria-checked={value === o.value}
+          onClick={() => onChange(o.value)}
+          className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
+            value === o.value
+              ? 'bg-blue-500 text-white'
+              : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
 
 export default function SettingsPage() {
-  const { setTheme, resolvedTheme } = useTheme()
+  // `theme` is the user's choice ('system' included); resolvedTheme is only ever light/dark
+  const { theme, setTheme } = useTheme()
+  const { tempUnit, setTempUnit, windUnit, setWindUnit } = useSettings()
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => setMounted(true), [])
-
-  if (!mounted) return null
 
   return (
     <div className="max-w-2xl mx-auto space-y-8 animate-fade-in">
@@ -23,60 +57,21 @@ export default function SettingsPage() {
           <FiMonitor className="text-blue-500" /> Appearance
         </h2>
         <div className="grid grid-cols-3 gap-3">
-          <button
-            onClick={() => setTheme('light')}
-            className={`p-4 rounded-xl border-2 transition-all text-center ${
-              resolvedTheme === 'light'
-                ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/10'
-                : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
-            }`}
-          >
-            <BsSunFill className="text-2xl text-amber-500 mx-auto mb-2" />
-            <span className="text-sm font-medium">Light</span>
-          </button>
-          <button
-            onClick={() => setTheme('dark')}
-            className={`p-4 rounded-xl border-2 transition-all text-center ${
-              resolvedTheme === 'dark'
-                ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/10'
-                : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
-            }`}
-          >
-            <BsMoonStarsFill className="text-2xl text-blue-500 mx-auto mb-2" />
-            <span className="text-sm font-medium">Dark</span>
-          </button>
-          <button
-            onClick={() => setTheme('system')}
-            className={`p-4 rounded-xl border-2 transition-all text-center border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600`}
-          >
-            <FiMonitor className="text-2xl text-slate-500 mx-auto mb-2" />
-            <span className="text-sm font-medium">System</span>
-          </button>
-        </div>
-      </section>
-
-      {/* Notifications */}
-      <section className="glass-card rounded-2xl p-6 space-y-4">
-        <h2 className="font-semibold text-lg flex items-center gap-2">
-          <FiBell className="text-green-500" /> Notifications
-        </h2>
-        <div className="flex items-center justify-between py-2">
-          <div>
-            <p className="font-medium">Weather Alerts</p>
-            <p className="text-sm text-slate-500">Get notified about severe weather</p>
-          </div>
-          <div className="w-12 h-7 rounded-full bg-slate-300 dark:bg-slate-600 relative cursor-pointer">
-            <div className="absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow" />
-          </div>
-        </div>
-        <div className="flex items-center justify-between py-2">
-          <div>
-            <p className="font-medium">Daily Forecast</p>
-            <p className="text-sm text-slate-500">Receive daily weather summary</p>
-          </div>
-          <div className="w-12 h-7 rounded-full bg-slate-300 dark:bg-slate-600 relative cursor-pointer">
-            <div className="absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow" />
-          </div>
+          {themeOptions.map(o => (
+            <button
+              key={o.value}
+              onClick={() => setTheme(o.value)}
+              aria-pressed={mounted && theme === o.value}
+              className={`p-4 rounded-xl border-2 transition-all text-center ${
+                mounted && theme === o.value
+                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/10'
+                  : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
+              }`}
+            >
+              {o.icon}
+              <span className="text-sm font-medium">{o.label}</span>
+            </button>
+          ))}
         </div>
       </section>
 
@@ -85,19 +80,23 @@ export default function SettingsPage() {
         <h2 className="font-semibold text-lg flex items-center gap-2">
           <FiGlobe className="text-purple-500" /> Units
         </h2>
-        <div className="flex items-center justify-between py-2">
+        <div className="flex items-center justify-between gap-4 py-2">
           <p className="font-medium">Temperature</p>
-          <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 rounded-full p-1">
-            <button className="px-4 py-1.5 rounded-full text-sm font-medium bg-blue-500 text-white">°C</button>
-            <button className="px-4 py-1.5 rounded-full text-sm font-medium text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">°F</button>
-          </div>
+          <Segmented
+            label="Temperature unit"
+            value={tempUnit}
+            onChange={setTempUnit}
+            options={[{ value: 'C', label: '°C' }, { value: 'F', label: '°F' }]}
+          />
         </div>
-        <div className="flex items-center justify-between py-2">
+        <div className="flex items-center justify-between gap-4 py-2">
           <p className="font-medium">Wind Speed</p>
-          <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 rounded-full p-1">
-            <button className="px-4 py-1.5 rounded-full text-sm font-medium bg-blue-500 text-white">km/h</button>
-            <button className="px-4 py-1.5 rounded-full text-sm font-medium text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">mph</button>
-          </div>
+          <Segmented
+            label="Wind speed unit"
+            value={windUnit}
+            onChange={setWindUnit}
+            options={[{ value: 'kmh', label: 'km/h' }, { value: 'mph', label: 'mph' }]}
+          />
         </div>
       </section>
 

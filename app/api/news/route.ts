@@ -3,15 +3,18 @@ import { NextResponse } from 'next/server'
 const ARTICLES_PER_PAGE = 9
 
 const RSS_FEEDS = [
-  'https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:en',
-  'https://news.google.com/rss/search?q={query}+weather&hl=en-US&gl=US&ceid=US:en',
-  'https://news.google.com/rss/search?q={query}+environment&hl=en-US&gl=US&ceid=US:en',
+  // when:7d limits Google News search results to the last week
+  'https://news.google.com/rss/search?q={query}+when:7d&hl=en-US&gl=US&ceid=US:en',
+  'https://news.google.com/rss/search?q={query}+weather+when:7d&hl=en-US&gl=US&ceid=US:en',
+  'https://news.google.com/rss/search?q={query}+environment+when:7d&hl=en-US&gl=US&ceid=US:en',
   'https://feeds.bbci.co.uk/news/science_and_environment/rss.xml',
 ]
 
-// In-memory cache to store articles for 7 days
+// In-memory cache, short-lived so news stays fresh and capped so arbitrary
+// search queries can't grow it without bound
 const cache = new Map<string, { articles: any[], timestamp: number }>()
-const CACHE_DURATION = 7 * 24 * 60 * 60 * 1000 // 7 days in ms
+const CACHE_DURATION = 30 * 60 * 1000 // 30 minutes in ms
+const CACHE_MAX_ENTRIES = 50
 
 function decodeEntities(text: string) {
   return text
@@ -65,7 +68,7 @@ function extractImageFromItem(item: string, rawDesc: string): string | null {
 async function fetchOgImage(url: string): Promise<string | null> {
   try {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 3000)
+    const timeout = setTimeout(() => controller.abort(), 2000)
     const res = await fetch(url, {
       signal: controller.signal,
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ClimateHub/1.0)' },
@@ -93,11 +96,14 @@ function parseRSS(xml: string, feedSource: string) {
     const title = cleanText(extractTag(item, 'title'))
     const link = cleanText(extractTag(item, 'link'))
     const rawDesc = extractTag(item, 'description')
-    const description = cleanText(rawDesc)
+    let description = cleanText(rawDesc)
+    // Google News descriptions are often just the title + source name
+    if (description.toLowerCase().startsWith(title.toLowerCase().slice(0, 40))) description = ''
     const pubDate = extractTag(item, 'pubDate')
 
     const source = extractTag(item, 'source') || feedSource
-    const image = extractImageFromItem(item, rawDesc)
+    // BBC feed thumbnails are 240px wide - request a size that stays sharp on phones
+    const image = extractImageFromItem(item, rawDesc)?.replace('/ace/standard/240/', '/ace/standard/800/') ?? null
 
     if (title) {
       articles.push({
@@ -138,7 +144,7 @@ async function fetchAllArticles(query: string): Promise<any[]> {
 
   const results = await Promise.allSettled(
     urls.map(async (url, i) => {
-      const res = await fetch(url, { next: { revalidate: 604800 } }) // 7 day revalidation
+      const res = await fetch(url, { next: { revalidate: 1800 } }) // 30 min revalidation
       if (!res.ok) return []
       const xml = await res.text()
       return parseRSS(xml, feedSources[i])
@@ -153,9 +159,10 @@ async function fetchAllArticles(query: string): Promise<any[]> {
   // Deduplicate articles from multiple feeds
   articles = deduplicateArticles(articles)
 
-  // For articles without images, try fetching og:image (in parallel, max 15 at a time)
+  // For articles without images, try fetching og:image (in parallel, max 15 at a time).
+  // Google News links are JS redirects whose og:image is always the Google News logo, so skip them.
   const articlesNeedingImages = articles
-    .map((a, i) => (!a.image ? i : -1))
+    .map((a, i) => (!a.image && !a.url.startsWith('https://news.google.com/') ? i : -1))
     .filter(i => i !== -1)
     .slice(0, 15) // Limit to avoid too many requests
 
@@ -170,14 +177,9 @@ async function fetchAllArticles(query: string): Promise<any[]> {
     })
   }
 
-  // Final fallback: assign picsum.photos image to any article still missing one
-  articles.forEach((article, i) => {
-    if (!article.image) {
-      article.image = `https://picsum.photos/seed/news${i}${Date.now() % 1000}/800/450`
-    }
-  })
-
-  // Store in cache
+  // Store in cache, evicting the oldest entry when full (Map keeps insertion order)
+  cache.delete(cacheKey)
+  if (cache.size >= CACHE_MAX_ENTRIES) cache.delete(cache.keys().next().value!)
   cache.set(cacheKey, { articles, timestamp: Date.now() })
 
   return articles
