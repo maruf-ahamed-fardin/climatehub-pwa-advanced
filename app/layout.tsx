@@ -24,6 +24,8 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
+  // Lets env(safe-area-inset-*) work so bars clear the notch and home indicator
+  viewportFit: 'cover',
   themeColor: [
     { media: '(prefers-color-scheme: light)', color: '#f8fafc' },
     { media: '(prefers-color-scheme: dark)', color: '#0f172a' },
@@ -36,7 +38,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <ThemeProvider attribute="class" defaultTheme="dark">
           <SettingsHydrator />
-          <div className="min-h-screen flex flex-col">
+          {/* Bottom padding on mobile keeps content clear of the fixed tab bar */}
+          <div className="min-h-screen flex flex-col pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
             <Navbar />
             <main className="flex-1 px-4 md:px-6 py-6">
               {children}
