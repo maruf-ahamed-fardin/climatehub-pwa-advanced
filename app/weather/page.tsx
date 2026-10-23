@@ -3,6 +3,7 @@ import useSWR from 'swr'
 import { useState, useRef } from 'react'
 import { fetcher } from '@/lib/fetcher'
 import { weatherUrl, forecastUrl } from '@/lib/weather'
+import { useSettings, convertTemp, convertWind, windLabel } from '@/lib/settings'
 import { AreaChart, Area, XAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { FiSearch, FiMapPin, FiNavigation, FiChevronLeft, FiChevronRight } from 'react-icons/fi'
 import {
@@ -10,7 +11,7 @@ import {
   WiCloud, WiCloudy, WiRain, WiDayRain, WiNightAltRain,
   WiThunderstorm, WiSnow, WiFog,
   WiHumidity, WiStrongWind, WiBarometer,
-  WiThermometer, WiSunrise, WiSunset, WiDayHaze
+  WiThermometer, WiSunrise, WiDayHaze
 } from 'react-icons/wi'
 
 const iconMap: Record<string, any> = {
@@ -73,64 +74,122 @@ function getWeatherStyle(code?: string): { bg: string; orb1: string; orb2: strin
   }
 }
 
+// Hero text colors - dark text on the pastel day gradients, light text on the night gradient
+const heroText = {
+  day: {
+    strong: 'text-slate-700', mid: 'text-slate-600', soft: 'text-slate-500', icon: 'text-slate-600',
+    pill: 'bg-white/30 text-slate-600',
+    input: 'bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-500 focus:bg-white/60 focus:border-white/70',
+    button: 'bg-white/60 text-slate-700 hover:bg-white/80',
+    chip: 'bg-white/25 text-slate-600 border border-white/30 hover:bg-white/50',
+    chipActive: 'bg-white/80 text-slate-800 shadow-md shadow-black/10',
+    spinner: 'border-slate-400/30 border-t-slate-600',
+  },
+  night: {
+    strong: 'text-white', mid: 'text-slate-200', soft: 'text-slate-300', icon: 'text-slate-100',
+    pill: 'bg-white/15 text-slate-200',
+    input: 'bg-white/10 border-white/20 text-white placeholder:text-slate-300 focus:bg-white/15 focus:border-white/40',
+    button: 'bg-white/20 text-white hover:bg-white/30',
+    chip: 'bg-white/10 text-slate-200 border border-white/15 hover:bg-white/20',
+    chipActive: 'bg-white/90 text-slate-800 shadow-md shadow-black/20',
+    spinner: 'border-white/20 border-t-white',
+  },
+}
+
 function WeatherIcon({ code, className }: { code: string; className?: string }) {
   const Icon = iconMap[code] || WiDaySunny
   return <Icon className={className} />
 }
 
-function formatTime(ts: number) {
-  return new Date(ts * 1000).toLocaleTimeString('en-US', { hour: 'numeric', hour12: true })
+// OpenWeather timestamps are UTC; `tz` is the city's offset in seconds.
+// Shifting by the offset and formatting in UTC shows the city's local time,
+// not the viewer's.
+function cityDate(ts: number, tz: number) {
+  return new Date((ts + tz) * 1000)
 }
 
-function formatHourlyLabel(ts: number) {
-  const d = new Date(ts * 1000)
-  const today = new Date()
-  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', hour12: true })
-  if (d.toDateString() === today.toDateString()) return time
-  const dayName = d.toLocaleDateString('en-US', { weekday: 'short' })
-  return `${dayName} ${time}`
+function formatTime(ts: number, tz: number, withMinutes = false) {
+  return cityDate(ts, tz).toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: withMinutes ? '2-digit' : undefined,
+    hour12: true,
+    timeZone: 'UTC',
+  })
 }
 
-function formatDay(ts: number) {
-  const d = new Date(ts * 1000)
-  const today = new Date()
-  if (d.toDateString() === today.toDateString()) return 'Today'
-  const tomorrow = new Date(today)
-  tomorrow.setDate(tomorrow.getDate() + 1)
-  if (d.toDateString() === tomorrow.toDateString()) return 'Tomorrow'
-  return d.toLocaleDateString('en-US', { weekday: 'short' })
+function dayKey(ts: number, tz: number) {
+  return cityDate(ts, tz).toISOString().slice(0, 10)
 }
 
-function getDayName(ts: number) {
-  return new Date(ts * 1000).toLocaleDateString('en-US', { weekday: 'short' })
+function getDayName(ts: number, tz: number) {
+  return cityDate(ts, tz).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' })
 }
 
-function processDailyForecast(list: any[]) {
-  const days: Record<string, { temps: number[]; icons: string[]; name: string; dt: number }> = {}
+function formatHourlyLabel(ts: number, tz: number) {
+  const time = formatTime(ts, tz)
+  if (dayKey(ts, tz) === dayKey(Date.now() / 1000, tz)) return time
+  return `${getDayName(ts, tz)} ${time}`
+}
+
+function formatDay(ts: number, tz: number) {
+  const now = Date.now() / 1000
+  if (dayKey(ts, tz) === dayKey(now, tz)) return 'Today'
+  if (dayKey(ts, tz) === dayKey(now + 86400, tz)) return 'Tomorrow'
+  return getDayName(ts, tz)
+}
+
+function processDailyForecast(list: any[], tz: number) {
+  const days: Record<string, { temps: number[]; icons: string[]; dt: number }> = {}
   list.forEach((item: any) => {
-    const date = new Date(item.dt * 1000)
-    const key = date.toDateString()
+    const key = dayKey(item.dt, tz)
     if (!days[key]) {
-      days[key] = { temps: [], icons: [], name: getDayName(item.dt), dt: item.dt }
+      days[key] = { temps: [], icons: [], dt: item.dt }
     }
     days[key].temps.push(item.main.temp)
     days[key].icons.push(item.weather[0].icon)
   })
   return Object.values(days).map(day => ({
-    name: day.name,
-    maxTemp: Math.round(Math.max(...day.temps)),
-    minTemp: Math.round(Math.min(...day.temps)),
+    maxTemp: Math.max(...day.temps),
+    minTemp: Math.min(...day.temps),
     icon: day.icons[Math.floor(day.icons.length / 2)],
     dt: day.dt
   }))
 }
 
+function StatCard({ label, icon, tint, children }: {
+  label: string
+  icon: React.ReactNode
+  tint: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className={`${tint} dark:bg-slate-800/60 backdrop-blur-xl border dark:border-slate-700/50 shadow-sm rounded-2xl p-3.5 md:p-5 space-y-2 md:space-y-3 hover:scale-[1.02] transition-transform duration-200`}>
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] md:text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">{label}</span>
+        {icon}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+const statValue = 'text-2xl md:text-3xl font-bold text-slate-700 dark:text-slate-100'
+const statUnit = 'text-sm md:text-lg text-slate-400'
+const statNote = 'text-[11px] md:text-xs text-slate-400'
+
 const popularCities = ['London', 'New York', 'Tokyo', 'Paris', 'Dubai', 'Sydney']
 
+const retryOnTransientErrors = {
+  onErrorRetry: (error: any, _key: string, _config: any, revalidate: any, { retryCount }: { retryCount: number }) => {
+    if (error.status === 401 || error.status === 404) return
+    if (retryCount >= 3) return
+    setTimeout(() => revalidate({ retryCount }), 3000)
+  }
+}
+
 export default function WeatherPage() {
-  const [city, setCity] = useState('London')
+  const { lastCity: city, setLastCity: setCity, tempUnit, windUnit, hydrated } = useSettings()
   const [searchInput, setSearchInput] = useState('')
-  const [activeTab, setActiveTab] = useState<'forecast' | 'hourly'>('forecast')
   const hourlyRef = useRef<HTMLDivElement>(null)
 
   const scrollHourly = (direction: 'left' | 'right') => {
@@ -140,27 +199,24 @@ export default function WeatherPage() {
     }
   }
 
-  const { data: rawWeather, isLoading, error: weatherError } = useSWR(weatherUrl(city), fetcher, {
-    onErrorRetry: (error, _key, _config, revalidate, { retryCount }) => {
-      if (error.status === 401 || error.status === 404) return
-      if (retryCount >= 3) return
-      setTimeout(() => revalidate({ retryCount }), 3000)
-    }
-  })
-  const { data: rawForecast, error: forecastError } = useSWR(forecastUrl(city), fetcher, {
-    onErrorRetry: (error, _key, _config, revalidate, { retryCount }) => {
-      if (error.status === 401 || error.status === 404) return
-      if (retryCount >= 3) return
-      setTimeout(() => revalidate({ retryCount }), 3000)
-    }
-  })
+  // Wait for the saved city to load so we don't fetch the default city first
+  const { data: rawWeather, isLoading, error: weatherError } = useSWR(hydrated ? weatherUrl(city) : null, fetcher, retryOnTransientErrors)
+  const { data: rawForecast, error: forecastError } = useSWR(hydrated ? forecastUrl(city) : null, fetcher, retryOnTransientErrors)
 
   const weather = rawWeather?.main ? rawWeather : null
   const forecast = rawForecast?.list ? rawForecast : null
   const apiError = weatherError || forecastError
+  const tz: number = weather?.timezone ?? forecast?.city?.timezone ?? 0
 
-  const dailyForecast = forecast ? processDailyForecast(forecast.list) : []
+  const dailyForecast = forecast ? processDailyForecast(forecast.list, tz).slice(0, 5) : []
   const hourlyForecast = forecast ? forecast.list : []
+
+  // Shared scale so the range bars are comparable across days
+  const weekMin = Math.min(...dailyForecast.map(d => d.minTemp))
+  const weekSpan = Math.max(1, Math.max(...dailyForecast.map(d => d.maxTemp)) - weekMin)
+
+  const t = (c: number) => convertTemp(c, tempUnit)
+  const wind = (ms: number) => convertWind(ms, windUnit)
 
   const handleSearch = () => {
     if (searchInput.trim()) {
@@ -170,19 +226,20 @@ export default function WeatherPage() {
   }
 
   const chartData = hourlyForecast.slice(0, 8).map((f: any) => ({
-    time: formatTime(f.dt),
-    temp: Math.round(f.main.temp)
+    time: formatTime(f.dt, tz),
+    temp: t(f.main.temp)
   }))
 
   const weatherCode = weather?.weather?.[0]?.icon
   const weatherStyle = getWeatherStyle(weatherCode)
+  const hero = weatherCode?.endsWith('n') ? heroText.night : heroText.day
 
   return (
     <div className="max-w-6xl mx-auto space-y-4 md:space-y-6 animate-fade-in">
 
       {/* ==================== HERO SECTION ==================== */}
       <div
-        className="relative rounded-3xl overflow-hidden px-4 py-5 md:p-8 text-slate-800 transition-all duration-700"
+        className="relative rounded-3xl overflow-hidden px-4 py-5 md:p-8 transition-all duration-700"
         style={{ background: weatherStyle.bg }}
       >
         {/* Animated orbs */}
@@ -195,23 +252,21 @@ export default function WeatherPage() {
           style={{ background: weatherStyle.orb2, animation: 'float 5s ease-in-out infinite reverse' }}
         />
 
-        {/* Search Bar - compact on mobile */}
+        {/* Search Bar - 16px text on mobile so iOS doesn't zoom on focus */}
         <div className="relative z-10 mb-3 md:mb-5">
           <div className="relative max-w-md">
-            <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm" />
+            <FiSearch className={`absolute left-3 top-1/2 -translate-y-1/2 text-sm ${hero.soft}`} />
             <input
               placeholder="Search city..."
+              aria-label="Search city"
               value={searchInput}
               onChange={e => setSearchInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSearch()}
-              className="w-full pl-9 pr-20 py-2.5 rounded-xl bg-white/40 backdrop-blur-md border border-white/50
-                         text-slate-700 placeholder:text-slate-400 text-sm outline-none
-                         focus:bg-white/60 focus:border-white/70 transition-all"
+              className={`w-full pl-9 pr-24 py-2.5 rounded-xl backdrop-blur-md border text-base md:text-sm outline-none transition-all ${hero.input}`}
             />
             <button
               onClick={handleSearch}
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 px-4 py-1.5 rounded-lg bg-white/60
-                         text-slate-700 text-xs font-semibold hover:bg-white/80 transition-all active:scale-95"
+              className={`absolute right-1.5 top-1/2 -translate-y-1/2 px-4 py-2 rounded-lg text-xs font-semibold transition-all active:scale-95 ${hero.button}`}
             >
               Search
             </button>
@@ -224,22 +279,20 @@ export default function WeatherPage() {
             <button
               key={c}
               onClick={() => setCity(c)}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-[11px] md:text-xs font-semibold whitespace-nowrap transition-all duration-200 ${
-                city === c
-                  ? 'bg-white/80 text-slate-800 shadow-md shadow-black/10'
-                  : 'bg-white/25 text-slate-600 border border-white/30 hover:bg-white/50'
+              className={`flex items-center gap-1 h-9 px-3.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all duration-200 ${
+                city === c ? hero.chipActive : hero.chip
               }`}
             >
-              <FiMapPin className="text-[9px]" />
+              <FiMapPin className="text-[10px]" />
               {c}
             </button>
           ))}
         </div>
 
         {/* Loading */}
-        {isLoading && !apiError && (
+        {(!hydrated || isLoading) && !apiError && (
           <div className="flex items-center justify-center py-12 md:py-16">
-            <div className="w-10 h-10 md:w-12 md:h-12 border-4 border-slate-400/30 border-t-slate-600 rounded-full animate-spin" />
+            <div className={`w-10 h-10 md:w-12 md:h-12 border-4 rounded-full animate-spin ${hero.spinner}`} />
           </div>
         )}
 
@@ -247,16 +300,16 @@ export default function WeatherPage() {
         {apiError && !weather && (
           <div className="text-center py-8 md:py-12 space-y-2 relative z-10">
             <div className="w-12 h-12 md:w-16 md:h-16 mx-auto rounded-full bg-white/30 backdrop-blur-md flex items-center justify-center">
-              <span className="text-xl md:text-2xl text-slate-600">!</span>
+              <span className={`text-xl md:text-2xl ${hero.mid}`}>!</span>
             </div>
-            <p className="text-base md:text-lg font-semibold text-slate-700">
+            <p className={`text-base md:text-lg font-semibold ${hero.strong}`}>
               {apiError.status === 401
                 ? 'Invalid API Key'
                 : apiError.status === 404
                 ? `City "${city}" not found`
                 : 'Failed to fetch weather'}
             </p>
-            <p className="text-xs md:text-sm text-slate-500 px-4">
+            <p className={`text-xs md:text-sm px-4 ${hero.soft}`}>
               {apiError.status === 401
                 ? 'Your API key may not be activated yet. New keys take up to 30 minutes.'
                 : apiError.status === 404
@@ -269,39 +322,38 @@ export default function WeatherPage() {
         {/* Main Weather Display */}
         {weather && (
           <div className="relative z-10">
-            {/* Mobile: side-by-side temp + icon | Desktop: same but bigger */}
             <div className="flex items-center justify-between gap-2">
               {/* Left - Temp & Info */}
               <div className="space-y-1 md:space-y-2 min-w-0">
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/30 backdrop-blur-sm text-[11px] md:text-xs font-semibold text-slate-600">
-                  <FiMapPin className="text-[9px] flex-shrink-0" />
+                <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full backdrop-blur-sm text-xs font-semibold ${hero.pill}`}>
+                  <FiMapPin className="text-[10px] flex-shrink-0" />
                   <span className="truncate">{weather.name}, {weather.sys?.country}</span>
                 </div>
                 <div className="flex items-baseline gap-1">
-                  <span className="text-7xl md:text-[120px] font-thin leading-none tracking-tighter text-slate-700">
-                    {Math.round(weather.main.temp)}
+                  <span className={`text-7xl md:text-[120px] font-thin leading-none tracking-tighter ${hero.strong}`}>
+                    {t(weather.main.temp)}
                   </span>
-                  <span className="text-3xl md:text-6xl font-thin text-slate-500">°C</span>
+                  <span className={`text-3xl md:text-6xl font-thin ${hero.soft}`}>°{tempUnit}</span>
                 </div>
-                <p className="text-base md:text-xl capitalize font-medium text-slate-600">
+                <p className={`text-base md:text-xl capitalize font-medium ${hero.mid}`}>
                   {weather.weather[0].description}
                 </p>
-                <div className="flex items-center gap-3 text-xs md:text-sm text-slate-500">
-                  <span>Feels {Math.round(weather.main.feels_like)}°</span>
-                  <span className="w-1 h-1 rounded-full bg-slate-400" />
-                  <span>H:{Math.round(weather.main.temp_max)}°</span>
-                  <span>L:{Math.round(weather.main.temp_min)}°</span>
+                <div className={`flex items-center gap-3 text-xs md:text-sm ${hero.soft}`}>
+                  <span>Feels {t(weather.main.feels_like)}°</span>
+                  <span className="w-1 h-1 rounded-full bg-current opacity-60" />
+                  <span>H:{t(weather.main.temp_max)}°</span>
+                  <span>L:{t(weather.main.temp_min)}°</span>
                 </div>
               </div>
 
               {/* Right - Weather Icon */}
               <div className="relative flex-shrink-0">
                 <div className="absolute inset-0 blur-3xl opacity-25 scale-110">
-                  <WeatherIcon code={weatherCode} className="text-[80px] md:text-[180px] text-slate-500" />
+                  <WeatherIcon code={weatherCode} className={`text-[80px] md:text-[180px] ${hero.soft}`} />
                 </div>
                 <WeatherIcon
                   code={weatherCode}
-                  className="text-[80px] md:text-[150px] drop-shadow-lg relative z-10 animate-float text-slate-600"
+                  className={`text-[80px] md:text-[150px] drop-shadow-lg relative z-10 animate-float ${hero.icon}`}
                 />
               </div>
             </div>
@@ -315,28 +367,30 @@ export default function WeatherPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <h3 className="text-xs md:text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Hourly Forecast</h3>
-              <span className="text-[9px] md:text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-500/10 text-blue-500 dark:text-blue-400 font-medium">
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-500/10 text-blue-500 dark:text-blue-400 font-medium">
                 {hourlyForecast.length * 3}h
               </span>
             </div>
             <div className="flex items-center gap-1.5">
               <button
                 onClick={() => scrollHourly('left')}
-                className="w-8 h-8 md:w-9 md:h-9 flex items-center justify-center rounded-xl
+                aria-label="Scroll hourly forecast left"
+                className="w-10 h-10 flex items-center justify-center rounded-xl
                            bg-white/60 dark:bg-slate-700/60 text-slate-500
                            hover:bg-blue-100 dark:hover:bg-blue-500/20 hover:text-blue-500
                            active:scale-90 transition-all duration-200"
               >
-                <FiChevronLeft className="text-sm md:text-base" />
+                <FiChevronLeft className="text-base" />
               </button>
               <button
                 onClick={() => scrollHourly('right')}
-                className="w-8 h-8 md:w-9 md:h-9 flex items-center justify-center rounded-xl
+                aria-label="Scroll hourly forecast right"
+                className="w-10 h-10 flex items-center justify-center rounded-xl
                            bg-white/60 dark:bg-slate-700/60 text-slate-500
                            hover:bg-blue-100 dark:hover:bg-blue-500/20 hover:text-blue-500
                            active:scale-90 transition-all duration-200"
               >
-                <FiChevronRight className="text-sm md:text-base" />
+                <FiChevronRight className="text-base" />
               </button>
             </div>
           </div>
@@ -344,28 +398,26 @@ export default function WeatherPage() {
           <div ref={hourlyRef} className="flex gap-2 overflow-x-auto scrollbar-hide pb-1" style={{ scrollBehavior: 'smooth' }}>
             {hourlyForecast.map((h: any, i: number) => (
               <div
-                key={i}
-                className={`flex-shrink-0 flex flex-col items-center gap-1 md:gap-1.5 py-2.5 md:py-3.5 rounded-xl md:rounded-2xl w-[70px] md:w-[85px] transition-all duration-200 cursor-default
+                key={h.dt}
+                className={`flex-shrink-0 flex flex-col items-center gap-1 md:gap-1.5 py-2.5 md:py-3.5 rounded-xl md:rounded-2xl w-[76px] md:w-[85px] transition-all duration-200 cursor-default
                   ${i === 0
                     ? 'bg-gradient-to-b from-blue-400 to-blue-500 text-white shadow-lg shadow-blue-400/25 scale-105'
                     : 'bg-white/70 dark:bg-slate-700/40 hover:bg-white dark:hover:bg-slate-600/50'
                   }`}
               >
-                <span className={`text-[9px] md:text-[10px] font-semibold tracking-wide ${i === 0 ? 'text-blue-100' : 'text-slate-400'}`}>
-                  {i === 0 ? 'NOW' : formatHourlyLabel(h.dt)}
+                <span className={`text-[11px] font-semibold tracking-wide ${i === 0 ? 'text-blue-100' : 'text-slate-400'}`}>
+                  {i === 0 ? 'NOW' : formatHourlyLabel(h.dt, tz)}
                 </span>
-                <div className="relative">
-                  <WeatherIcon
-                    code={h.weather[0].icon}
-                    className={`text-2xl md:text-3xl ${i === 0 ? 'text-white drop-shadow-lg' : 'text-amber-400'}`}
-                  />
-                </div>
+                <WeatherIcon
+                  code={h.weather[0].icon}
+                  className={`text-2xl md:text-3xl ${i === 0 ? 'text-white drop-shadow-lg' : 'text-amber-400'}`}
+                />
                 <span className={`text-sm md:text-base font-bold ${i === 0 ? '' : 'text-slate-700 dark:text-slate-200'}`}>
-                  {Math.round(h.main.temp)}°
+                  {t(h.main.temp)}°
                 </span>
-                <div className={`flex items-center gap-0.5 ${i === 0 ? 'text-blue-200' : 'text-slate-400'}`}>
-                  <WiStrongWind className="text-[10px] md:text-xs" />
-                  <span className="text-[8px] md:text-[9px] font-medium">{Math.round(h.wind?.speed || 0)}</span>
+                <div className={`flex items-center gap-0.5 ${i === 0 ? 'text-blue-100' : 'text-slate-400'}`}>
+                  <WiStrongWind className="text-xs" />
+                  <span className="text-[10px] font-medium">{wind(h.wind?.speed || 0)} {windLabel(windUnit)}</span>
                 </div>
               </div>
             ))}
@@ -379,28 +431,28 @@ export default function WeatherPage() {
           {/* 5-Day Forecast */}
           <div className="md:col-span-2 bg-indigo-50/60 dark:bg-slate-800/60 backdrop-blur-xl border border-indigo-100/50 dark:border-slate-700/50 shadow-sm rounded-2xl p-3.5 md:p-5 space-y-1">
             <h3 className="text-xs md:text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 md:mb-3">5-Day Forecast</h3>
-            {dailyForecast.slice(0, 5).map((day, i) => (
+            {dailyForecast.map(day => (
               <div
-                key={i}
-                className="flex items-center justify-between py-2.5 px-2 rounded-xl hover:bg-white/60 dark:hover:bg-slate-700/40 transition-colors"
+                key={day.dt}
+                className="flex items-center gap-2 py-2.5 px-2 rounded-xl hover:bg-white/60 dark:hover:bg-slate-700/40 transition-colors"
               >
-                <span className="text-sm font-medium w-16 text-slate-500 dark:text-slate-400">
-                  {formatDay(day.dt)}
+                <span className="text-sm font-medium w-[4.5rem] flex-shrink-0 text-slate-500 dark:text-slate-400">
+                  {formatDay(day.dt, tz)}
                 </span>
-                <WeatherIcon code={day.icon} className="text-2xl text-amber-400" />
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-bold w-8 text-right text-slate-700 dark:text-slate-200">{day.maxTemp}°</span>
-                  {/* Temp range bar */}
-                  <div className="w-16 h-1.5 rounded-full bg-blue-100 dark:bg-slate-700 overflow-hidden">
+                <WeatherIcon code={day.icon} className="text-2xl text-amber-400 flex-shrink-0" />
+                <div className="flex flex-1 min-w-0 items-center justify-end gap-2">
+                  <span className="text-sm text-slate-400 w-8 text-right">{t(day.minTemp)}°</span>
+                  {/* Temp range bar on a shared 5-day scale */}
+                  <div className="relative flex-1 max-w-[6rem] h-1.5 rounded-full bg-blue-100 dark:bg-slate-700 overflow-hidden">
                     <div
-                      className="h-full rounded-full bg-gradient-to-r from-blue-300 to-orange-300"
+                      className="absolute h-full rounded-full bg-gradient-to-r from-blue-300 to-orange-300"
                       style={{
-                        width: `${Math.max(20, ((day.maxTemp - day.minTemp) / 20) * 100)}%`,
-                        marginLeft: `${Math.max(0, ((day.minTemp - (dailyForecast[0]?.minTemp || 0)) / 20) * 100)}%`
+                        left: `${((day.minTemp - weekMin) / weekSpan) * 100}%`,
+                        width: `${Math.max(8, ((day.maxTemp - day.minTemp) / weekSpan) * 100)}%`,
                       }}
                     />
                   </div>
-                  <span className="text-sm text-slate-400 w-8 text-right">{day.minTemp}°</span>
+                  <span className="text-sm font-bold w-8 text-right text-slate-700 dark:text-slate-200">{t(day.maxTemp)}°</span>
                 </div>
               </div>
             ))}
@@ -423,6 +475,7 @@ export default function WeatherPage() {
                       dataKey="time"
                       axisLine={false}
                       tickLine={false}
+                      interval="preserveStartEnd"
                       tick={{ fontSize: 11, fill: '#94a3b8' }}
                     />
                     <Tooltip
@@ -435,7 +488,7 @@ export default function WeatherPage() {
                         padding: '8px 14px',
                         boxShadow: '0 8px 32px rgba(0,0,0,0.3)'
                       }}
-                      formatter={(value: number) => [`${value}°C`, 'Temp']}
+                      formatter={(value: number) => [`${value}°${tempUnit}`, 'Temp']}
                       labelStyle={{ color: '#94a3b8', fontSize: '11px' }}
                     />
                     <Area
@@ -461,81 +514,57 @@ export default function WeatherPage() {
           <h3 className="text-xs md:text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider px-1">Details</h3>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
 
-            {/* Humidity */}
-            <div className="bg-sky-50/70 dark:bg-slate-800/60 backdrop-blur-xl border border-sky-100/60 dark:border-slate-700/50 shadow-sm rounded-2xl p-3.5 md:p-5 space-y-2 md:space-y-3 group hover:scale-[1.02] transition-transform duration-200">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] md:text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Humidity</span>
-                <WiHumidity className="text-xl md:text-2xl text-blue-400" />
-              </div>
-              <p className="text-2xl md:text-3xl font-bold text-slate-700 dark:text-slate-100">{weather.main.humidity}<span className="text-sm md:text-lg text-slate-400">%</span></p>
+            <StatCard label="Humidity" tint="bg-sky-50/70 border-sky-100/60" icon={<WiHumidity className="text-xl md:text-2xl text-blue-400" />}>
+              <p className={statValue}>{weather.main.humidity}<span className={statUnit}>%</span></p>
               <div className="w-full h-1.5 rounded-full bg-blue-100 dark:bg-slate-700 overflow-hidden">
                 <div className="h-full rounded-full bg-blue-300 dark:bg-blue-400 transition-all duration-700" style={{ width: `${weather.main.humidity}%` }} />
               </div>
-            </div>
+            </StatCard>
 
-            {/* Wind */}
-            <div className="bg-emerald-50/60 dark:bg-slate-800/60 backdrop-blur-xl border border-emerald-100/50 dark:border-slate-700/50 shadow-sm rounded-2xl p-3.5 md:p-5 space-y-2 md:space-y-3 group hover:scale-[1.02] transition-transform duration-200">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] md:text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Wind</span>
+            <StatCard
+              label="Wind"
+              tint="bg-emerald-50/60 border-emerald-100/50"
+              icon={
                 <FiNavigation
                   className="text-base md:text-lg text-emerald-400 transition-transform duration-300"
                   style={{ transform: `rotate(${weather.wind.deg || 0}deg)` }}
                 />
-              </div>
-              <p className="text-2xl md:text-3xl font-bold text-slate-700 dark:text-slate-100">{weather.wind.speed}<span className="text-sm md:text-lg text-slate-400"> km/h</span></p>
-              <p className="text-[10px] md:text-xs text-slate-400">
-                Gusts: {weather.wind.gust ? `${weather.wind.gust} km/h` : 'N/A'}
+              }
+            >
+              <p className={statValue}>{wind(weather.wind.speed)}<span className={statUnit}> {windLabel(windUnit)}</span></p>
+              <p className={statNote}>
+                Gusts: {weather.wind.gust ? `${wind(weather.wind.gust)} ${windLabel(windUnit)}` : 'N/A'}
               </p>
-            </div>
+            </StatCard>
 
-            {/* Pressure */}
-            <div className="bg-purple-50/60 dark:bg-slate-800/60 backdrop-blur-xl border border-purple-100/50 dark:border-slate-700/50 shadow-sm rounded-2xl p-3.5 md:p-5 space-y-2 md:space-y-3 group hover:scale-[1.02] transition-transform duration-200">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] md:text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Pressure</span>
-                <WiBarometer className="text-xl md:text-2xl text-purple-400" />
-              </div>
-              <p className="text-2xl md:text-3xl font-bold text-slate-700 dark:text-slate-100">{weather.main.pressure}<span className="text-sm md:text-lg text-slate-400"> hPa</span></p>
-              <p className="text-[10px] md:text-xs text-slate-400">
+            <StatCard label="Pressure" tint="bg-purple-50/60 border-purple-100/50" icon={<WiBarometer className="text-xl md:text-2xl text-purple-400" />}>
+              <p className={statValue}>{weather.main.pressure}<span className={statUnit}> hPa</span></p>
+              <p className={statNote}>
                 {weather.main.pressure > 1013 ? 'Above normal' : weather.main.pressure < 1013 ? 'Below normal' : 'Normal'}
               </p>
-            </div>
+            </StatCard>
 
-            {/* Visibility */}
-            <div className="bg-amber-50/60 dark:bg-slate-800/60 backdrop-blur-xl border border-amber-100/50 dark:border-slate-700/50 shadow-sm rounded-2xl p-3.5 md:p-5 space-y-2 md:space-y-3 group hover:scale-[1.02] transition-transform duration-200">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] md:text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Visibility</span>
-                <WiDayHaze className="text-xl md:text-2xl text-amber-400" />
-              </div>
-              <p className="text-2xl md:text-3xl font-bold text-slate-700 dark:text-slate-100">{(weather.visibility / 1000).toFixed(1)}<span className="text-sm md:text-lg text-slate-400"> km</span></p>
-              <p className="text-[10px] md:text-xs text-slate-400">
+            <StatCard label="Visibility" tint="bg-amber-50/60 border-amber-100/50" icon={<WiDayHaze className="text-xl md:text-2xl text-amber-400" />}>
+              <p className={statValue}>{(weather.visibility / 1000).toFixed(1)}<span className={statUnit}> km</span></p>
+              <p className={statNote}>
                 {weather.visibility >= 10000 ? 'Excellent' : weather.visibility >= 5000 ? 'Good' : 'Poor'}
               </p>
-            </div>
+            </StatCard>
 
-            {/* Sunrise */}
-            <div className="bg-orange-50/60 dark:bg-slate-800/60 backdrop-blur-xl border border-orange-100/50 dark:border-slate-700/50 shadow-sm rounded-2xl p-3.5 md:p-5 space-y-2 md:space-y-3 group hover:scale-[1.02] transition-transform duration-200">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] md:text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Sunrise</span>
-                <WiSunrise className="text-xl md:text-2xl text-orange-400" />
-              </div>
-              <p className="text-2xl md:text-3xl font-bold text-slate-700 dark:text-slate-100">{formatTime(weather.sys.sunrise)}</p>
-              <p className="text-[10px] md:text-xs text-slate-400">
-                Sunset at {formatTime(weather.sys.sunset)}
+            <StatCard label="Sunrise" tint="bg-orange-50/60 border-orange-100/50" icon={<WiSunrise className="text-xl md:text-2xl text-orange-400" />}>
+              <p className={statValue}>{formatTime(weather.sys.sunrise, tz, true)}</p>
+              <p className={statNote}>
+                Sunset at {formatTime(weather.sys.sunset, tz, true)}
               </p>
-            </div>
+            </StatCard>
 
-            {/* Feels Like */}
-            <div className="bg-rose-50/60 dark:bg-slate-800/60 backdrop-blur-xl border border-rose-100/50 dark:border-slate-700/50 shadow-sm rounded-2xl p-3.5 md:p-5 space-y-2 md:space-y-3 group hover:scale-[1.02] transition-transform duration-200">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] md:text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Feels Like</span>
-                <WiThermometer className="text-xl md:text-2xl text-rose-400" />
-              </div>
-              <p className="text-2xl md:text-3xl font-bold text-slate-700 dark:text-slate-100">{Math.round(weather.main.feels_like)}<span className="text-sm md:text-lg text-slate-400">°C</span></p>
-              <p className="text-[10px] md:text-xs text-slate-400">
-                {Math.round(weather.main.feels_like) > Math.round(weather.main.temp) ? 'Warmer than actual' :
-                 Math.round(weather.main.feels_like) < Math.round(weather.main.temp) ? 'Cooler than actual' : 'Same as actual'}
+            <StatCard label="Feels Like" tint="bg-rose-50/60 border-rose-100/50" icon={<WiThermometer className="text-xl md:text-2xl text-rose-400" />}>
+              <p className={statValue}>{t(weather.main.feels_like)}<span className={statUnit}>°{tempUnit}</span></p>
+              <p className={statNote}>
+                {t(weather.main.feels_like) > t(weather.main.temp) ? 'Warmer than actual' :
+                 t(weather.main.feels_like) < t(weather.main.temp) ? 'Cooler than actual' : 'Same as actual'}
               </p>
-            </div>
+            </StatCard>
 
           </div>
         </div>
