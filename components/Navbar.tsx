@@ -18,7 +18,7 @@ export default function Navbar() {
   const [installPrompt, setInstallPrompt] = useState<any>(null)
 
   useEffect(() => {
-    const handler = (e: any) => {
+    const handler = (e: Event) => {
       e.preventDefault()
       setInstallPrompt(e)
     }
@@ -26,18 +26,15 @@ export default function Navbar() {
     return () => window.removeEventListener('beforeinstallprompt', handler)
   }, [])
 
-  const handleInstall = () => {
-    if (installPrompt) {
-      installPrompt.prompt()
-      setInstallPrompt(null)
-    } else {
-      // Fallback: guide user to use browser's install option
-      alert('To install ClimateHub, use your browser menu and select "Add to Home Screen" or "Install App".')
-    }
+  const handleInstall = async () => {
+    if (!installPrompt) return
+    installPrompt.prompt()
+    await installPrompt.userChoice
+    setInstallPrompt(null)
   }
 
   return (
-    <nav className="glass-nav sticky top-0 z-50 px-6 py-3">
+    <nav className="glass-nav sticky top-0 z-50 px-4 md:px-6 py-3">
       <div className="max-w-6xl mx-auto flex items-center justify-between">
         {/* Logo */}
         <Link href="/" className="flex items-center gap-2 group">
@@ -64,17 +61,6 @@ export default function Navbar() {
 
         {/* Right side */}
         <div className="flex items-center gap-2">
-          {/* Install Button */}
-          <button
-            onClick={handleInstall}
-            className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-medium
-                       bg-blue-500 text-white hover:bg-blue-600 transition-all duration-200
-                       hover:shadow-lg hover:shadow-blue-500/25 active:scale-95"
-          >
-            <FiDownload className="text-sm" />
-            <span className="hidden sm:inline">Install</span>
-          </button>
-
           <ThemeToggle />
 
           {/* Mobile hamburger */}
@@ -107,15 +93,16 @@ export default function Navbar() {
               </Link>
             ))}
 
-            {/* Mobile Install Button */}
-            <button
-              onClick={() => { handleInstall(); setMenuOpen(false) }}
-              className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium
-                         text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-all"
-            >
-              <FiDownload />
-              Install App
-            </button>
+            {/* Install App - mobile only */}
+            {installPrompt && (
+              <button
+                onClick={() => { handleInstall(); setMenuOpen(false) }}
+                className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium text-blue-500 bg-blue-50 dark:bg-blue-500/10 transition-all duration-200"
+              >
+                <FiDownload className="text-base" />
+                Install App
+              </button>
+            )}
           </div>
         </div>
       )}

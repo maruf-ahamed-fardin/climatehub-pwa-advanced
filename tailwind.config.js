@@ -5,6 +5,10 @@ module.exports = {
     "./components/**/*.{js,ts,jsx,tsx}",
   ],
   darkMode: "class",
+  // Wrap hover: styles in @media (hover: hover) so cards don't stay "hovered" after a tap on touch screens
+  future: {
+    hoverOnlyWhenSupported: true,
+  },
   theme: {
     extend: {
       colors: {
