@@ -2,16 +2,16 @@
 import useSWR from 'swr'
 import { useState, useRef } from 'react'
 import { fetcher } from '@/lib/fetcher'
-import { weatherUrl, forecastUrl } from '@/lib/weather'
+import { weatherUrl, forecastUrl, airUrl } from '@/lib/weather'
 import { useSettings, convertTemp, convertWind, windLabel } from '@/lib/settings'
 import { AreaChart, Area, XAxis, Tooltip, ResponsiveContainer } from 'recharts'
-import { FiSearch, FiMapPin, FiNavigation, FiChevronLeft, FiChevronRight } from 'react-icons/fi'
+import { FiSearch, FiMapPin, FiNavigation, FiChevronLeft, FiChevronRight, FiCrosshair, FiWind } from 'react-icons/fi'
 import {
   WiDaySunny, WiNightClear, WiDayCloudy, WiNightAltCloudy,
   WiCloud, WiCloudy, WiRain, WiDayRain, WiNightAltRain,
   WiThunderstorm, WiSnow, WiFog,
   WiHumidity, WiStrongWind, WiBarometer,
-  WiThermometer, WiSunrise, WiDayHaze
+  WiSunrise, WiDayHaze
 } from 'react-icons/wi'
 
 const iconMap: Record<string, any> = {
@@ -177,6 +177,15 @@ const statValue = 'text-2xl md:text-3xl font-bold text-slate-700 dark:text-slate
 const statUnit = 'text-sm md:text-lg text-slate-400'
 const statNote = 'text-[11px] md:text-xs text-slate-400'
 
+// OpenWeather Air Pollution API: aqi is 1 (good) to 5 (very poor)
+const aqiLevels = [
+  { label: 'Good', note: 'Air quality is satisfactory', color: 'bg-emerald-400' },
+  { label: 'Fair', note: 'Acceptable for most people', color: 'bg-lime-400' },
+  { label: 'Moderate', note: 'Sensitive groups should take care', color: 'bg-amber-400' },
+  { label: 'Poor', note: 'Limit long outdoor activity', color: 'bg-orange-500' },
+  { label: 'Very Poor', note: 'Avoid outdoor activity', color: 'bg-red-500' },
+]
+
 const popularCities = ['London', 'New York', 'Tokyo', 'Paris', 'Dubai', 'Sydney']
 
 const retryOnTransientErrors = {
@@ -188,8 +197,10 @@ const retryOnTransientErrors = {
 }
 
 export default function WeatherPage() {
-  const { lastCity: city, setLastCity: setCity, tempUnit, windUnit, hydrated } = useSettings()
+  const { lastCity: city, setLastCity: setCity, coords, setCoords, tempUnit, windUnit, hydrated } = useSettings()
   const [searchInput, setSearchInput] = useState('')
+  const [locating, setLocating] = useState(false)
+  const [geoError, setGeoError] = useState('')
   const hourlyRef = useRef<HTMLDivElement>(null)
 
   const scrollHourly = (direction: 'left' | 'right') => {
@@ -200,10 +211,14 @@ export default function WeatherPage() {
   }
 
   // Wait for the saved city to load so we don't fetch the default city first
-  const { data: rawWeather, isLoading, error: weatherError } = useSWR(hydrated ? weatherUrl(city) : null, fetcher, retryOnTransientErrors)
-  const { data: rawForecast, error: forecastError } = useSWR(hydrated ? forecastUrl(city) : null, fetcher, retryOnTransientErrors)
+  const { data: rawWeather, isLoading, error: weatherError } = useSWR(hydrated ? weatherUrl(city, coords) : null, fetcher, retryOnTransientErrors)
+  const { data: rawForecast, error: forecastError } = useSWR(hydrated ? forecastUrl(city, coords) : null, fetcher, retryOnTransientErrors)
 
   const weather = rawWeather?.main ? rawWeather : null
+  // Air quality needs coordinates, which the weather response provides for any city
+  const { data: rawAir } = useSWR(weather?.coord ? airUrl(weather.coord) : null, fetcher)
+  const air = rawAir?.list?.[0]
+  const aqi = air ? aqiLevels[air.main.aqi - 1] : null
   const forecast = rawForecast?.list ? rawForecast : null
   const apiError = weatherError || forecastError
   const tz: number = weather?.timezone ?? forecast?.city?.timezone ?? 0
@@ -222,7 +237,31 @@ export default function WeatherPage() {
     if (searchInput.trim()) {
       setCity(searchInput.trim())
       setSearchInput('')
+      setGeoError('')
     }
+  }
+
+  const handleLocate = () => {
+    if (!navigator.geolocation) {
+      setGeoError('Location is not supported on this device')
+      return
+    }
+    setLocating(true)
+    setGeoError('')
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        // ~100m precision is plenty for weather and keeps cache keys stable
+        setCoords({ lat: +pos.coords.latitude.toFixed(3), lon: +pos.coords.longitude.toFixed(3) })
+        setLocating(false)
+      },
+      err => {
+        setGeoError(err.code === err.PERMISSION_DENIED
+          ? 'Location permission denied. Allow it in your browser settings.'
+          : 'Could not get your location. Try searching instead.')
+        setLocating(false)
+      },
+      { timeout: 10000, maximumAge: 10 * 60 * 1000 }
+    )
   }
 
   const chartData = hourlyForecast.slice(0, 8).map((f: any) => ({
@@ -275,12 +314,22 @@ export default function WeatherPage() {
 
         {/* Quick Cities */}
         <div className="relative z-10 flex gap-1.5 md:gap-2 mb-4 md:mb-8 overflow-x-auto scrollbar-hide pb-1">
+          <button
+            onClick={handleLocate}
+            disabled={locating}
+            className={`flex items-center gap-1.5 h-9 px-3.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all duration-200 disabled:opacity-60 ${
+              coords ? hero.chipActive : hero.chip
+            }`}
+          >
+            <FiCrosshair className={`text-xs ${locating ? 'animate-spin' : ''}`} />
+            {locating ? 'Locating...' : 'My location'}
+          </button>
           {popularCities.map(c => (
             <button
               key={c}
-              onClick={() => setCity(c)}
+              onClick={() => { setCity(c); setGeoError('') }}
               className={`flex items-center gap-1 h-9 px-3.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all duration-200 ${
-                city === c ? hero.chipActive : hero.chip
+                city === c && !coords ? hero.chipActive : hero.chip
               }`}
             >
               <FiMapPin className="text-[10px]" />
@@ -288,6 +337,10 @@ export default function WeatherPage() {
             </button>
           ))}
         </div>
+
+        {geoError && (
+          <p role="alert" className={`relative z-10 -mt-2 mb-4 text-xs font-medium ${hero.mid}`}>{geoError}</p>
+        )}
 
         {/* Loading */}
         {(!hydrated || isLoading) && !apiError && (
@@ -306,7 +359,7 @@ export default function WeatherPage() {
               {apiError.status === 401
                 ? 'Invalid API Key'
                 : apiError.status === 404
-                ? `City "${city}" not found`
+                ? (coords ? 'No weather for your location' : `City "${city}" not found`)
                 : 'Failed to fetch weather'}
             </p>
             <p className={`text-xs md:text-sm px-4 ${hero.soft}`}>
@@ -558,12 +611,20 @@ export default function WeatherPage() {
               </p>
             </StatCard>
 
-            <StatCard label="Feels Like" tint="bg-rose-50/60 border-rose-100/50" icon={<WiThermometer className="text-xl md:text-2xl text-rose-400" />}>
-              <p className={statValue}>{t(weather.main.feels_like)}<span className={statUnit}>°{tempUnit}</span></p>
-              <p className={statNote}>
-                {t(weather.main.feels_like) > t(weather.main.temp) ? 'Warmer than actual' :
-                 t(weather.main.feels_like) < t(weather.main.temp) ? 'Cooler than actual' : 'Same as actual'}
-              </p>
+            <StatCard label="Air Quality" tint="bg-rose-50/60 border-rose-100/50" icon={<FiWind className="text-base md:text-lg text-rose-400" />}>
+              {aqi ? (
+                <>
+                  <p className={`${statValue} flex items-center gap-2`}>
+                    <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${aqi.color}`} />
+                    <span className="truncate">{aqi.label}</span>
+                  </p>
+                  <p className={statNote}>
+                    PM2.5 {Math.round(air.components.pm2_5)} µg/m³ · {aqi.note}
+                  </p>
+                </>
+              ) : (
+                <p className={`${statValue} text-slate-400`}>--</p>
+              )}
             </StatCard>
 
           </div>
