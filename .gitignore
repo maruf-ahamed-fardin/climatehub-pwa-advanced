@@ -7,3 +7,10 @@ out
 .env.development.local
 *.tsbuildinfo
 tsconfig.tsbuildinfo
+
+# next-pwa generated
+public/sw.js
+public/sw.js.map
+public/workbox-*.js
+public/workbox-*.js.map
+public/fallback-*.js
